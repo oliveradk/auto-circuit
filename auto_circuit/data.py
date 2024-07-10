@@ -38,6 +38,16 @@ class PromptPairBatch:
     answers: List[t.Tensor] | t.Tensor
     wrong_answers: List[t.Tensor] | t.Tensor
 
+def to_device(batch: PromptPairBatch, device: str):
+    return PromptPairBatch(
+        key=batch.key, 
+        batch_diverge_idx=batch.batch_diverge_idx, 
+        clean=batch.clean.to(device), 
+        corrupt=batch.corrupt.to(device), 
+        answers=batch.answers.to(device),
+        wrong_answers=batch.wrong_answers.to(device)
+    )
+
 
 def collate_fn(batch: List[PromptPair]) -> PromptPairBatch:
     clean = t.stack([p.clean for p in batch])

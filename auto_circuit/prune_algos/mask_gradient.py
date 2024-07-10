@@ -3,7 +3,7 @@ from typing import Dict, Literal, Optional, Set
 import torch as t
 from torch.nn.functional import log_softmax
 
-from auto_circuit.data import PromptDataLoader
+from auto_circuit.data import PromptDataLoader, to_device
 from auto_circuit.types import AblationType, BatchKey, Edge, PruneScores
 from auto_circuit.utils.ablation_activations import batch_src_ablations
 from auto_circuit.utils.custom_tqdm import tqdm
@@ -27,6 +27,7 @@ def mask_gradient_prune_scores(
     mask_val: Optional[float] = None,
     integrated_grad_samples: Optional[int] = None,
     return_src_outs: bool = False,
+    device: str = "cpu"
 ) -> PruneScores:
     """
     Prune scores equal to the gradient of the mask values that interpolates the edges
@@ -79,6 +80,7 @@ def mask_gradient_prune_scores(
                 set_all_masks(model, val=mask_val)
 
             for batch in dataloader:
+                batch = to_device(batch, device)
                 patch_src_outs = src_outs[batch.key].clone().detach()
                 with patch_mode(model, patch_src_outs):
                     logits = model(batch.clean)[out_slice]
