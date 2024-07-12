@@ -31,12 +31,17 @@ from auto_circuit.utils.patch_wrapper import PatchWrapperImpl
 from auto_circuit.utils.patchable_model import PatchableModel
 from auto_circuit.utils.tensor_ops import desc_prune_scores
 
+def node_filter(node: Node, ignored_layers: set[int] = {}, ignored_module_types: set[str] = {}):
+    return node.layer not in ignored_layers and node.module_name.split(".")[2] not in ignored_module_types
 
 def patchable_model(
     model: t.nn.Module,
     factorized: bool,
     slice_output: OutputSlice = None,
     seq_len: Optional[int] = None,
+    filtered_layers: Set[int] = {},
+    filtered_src_mods: Set[str] = {},
+    filtered_dest_mods: Set[str] = {},
     separate_qkv: Optional[bool] = None,
     kv_caches: Tuple[Optional[HookedTransformerKeyValueCache], ...] = (None,),
     device: t.device = t.device("cpu"),
@@ -54,6 +59,11 @@ def patchable_model(
             token's output in transformer models.
         seq_len: The sequence length of the model inputs. If `None`, all token positions
             are simultaneously ablated.
+        filtered_layers: The layers to ignore in the model.
+        filtered_src_mods: The source modules to ignore in the model. (e.g. 
+            hook_resid_pre, attn, hook_mlp_out,
+        filtered_dest_mods: The destination modules to ignore in the model. (e.g. 
+            hook_resid_post, hook_mlp_in, hook_k_input, hook_q_input, hook_v_input)
         separate_qkv: Whether the model has separate query, key, and value inputs. Only
             used for transformers.
         kv_caches: The key and value caches for the transformer. Only used for
@@ -68,7 +78,13 @@ def patchable_model(
     """
     assert not isinstance(model, PatchableModel), "Model is already patchable"
     nodes, srcs, dests, edge_dict, edges, seq_dim, seq_len = graph_edges(
-        model, factorized, separate_qkv, seq_len
+        model, 
+        factorized, 
+        separate_qkv, 
+        seq_len, 
+        filtered_layers, 
+        filtered_src_mods, 
+        filtered_dest_mods
     )
     wrappers, src_wrappers, dest_wrappers = make_model_patchable(
         model, factorized, srcs, nodes, device, seq_len, seq_dim
@@ -106,6 +122,9 @@ def graph_edges(
     factorized: bool,
     separate_qkv: Optional[bool] = None,
     seq_len: Optional[int] = None,
+    filtered_layers: Set[int] = {},
+    filtered_src_mods: Set[str] = {},
+    filtered_dest_mods: Set[str] = {},
 ) -> Tuple[
     Set[Node],
     Set[SrcNode],
@@ -126,6 +145,11 @@ def graph_edges(
             used for transformers.
         seq_len: The sequence length of the model inputs. If `None`, all token positions
             are simultaneously ablated.
+        filtered_layers: The layers to ignore in the model.
+        filtered_src_mods: The source modules to ignore in the model. (e.g. 
+            hook_resid_pre, attn, hook_mlp_out,
+        filtered_dest_mods: The destination modules to ignore in the model. (e.g. 
+            hook_resid_post, hook_mlp_in, hook_k_input, hook_q_input, hook_v_input)
 
     Returns:
         Tuple containing:
@@ -152,6 +176,8 @@ def graph_edges(
             srcs, dests = tl_utils.simple_graph_nodes(model)
         else:
             raise NotImplementedError(model)
+        srcs = {n for n in srcs if node_filter(n, filtered_layers, filtered_src_mods)}
+        dests = {n for n in dests if node_filter(n, filtered_layers, filtered_dest_mods)}
         for i in [None] if seq_len is None else range(seq_len):
             pairs = product(srcs, dests)
             edge_dict[i] = [Edge(s, d, i) for s, d in pairs if s.layer + 1 == d.layer]
@@ -169,6 +195,8 @@ def graph_edges(
             dests: Set[DestNode] = sae_utils.factorized_dest_nodes(model, separate_qkv)
         else:
             raise NotImplementedError(model)
+        srcs = {n for n in srcs if node_filter(n, filtered_layers, filtered_src_mods)}
+        dests = {n for n in dests if node_filter(n, filtered_layers, filtered_dest_mods)}
         for i in [None] if seq_len is None else range(seq_len):
             pairs = product(srcs, dests)
             edge_dict[i] = [Edge(s, d, i) for s, d in pairs if s.layer < d.layer]
