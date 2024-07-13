@@ -6,7 +6,13 @@ import transformer_lens as tl
 from auto_circuit.types import DestNode, SrcNode
 
 
-def factorized_src_nodes(model: tl.HookedTransformer) -> Set[SrcNode]:
+def factorized_src_nodes(
+        model: tl.HookedTransformer,
+        ignored_layers: Set[int]={},
+        resid_start: bool= True,
+        attn: bool= True, 
+        mlp: bool = True
+    ) -> Set[SrcNode]:
     """
     Get the source part of each edge in the factorized graph, grouped by layer.
 
@@ -22,32 +28,39 @@ def factorized_src_nodes(model: tl.HookedTransformer) -> Set[SrcNode]:
         assert model.cfg.use_hook_mlp_in  # Get MLP input BEFORE layernorm
     layers, idxs = count(), count()
     nodes = set()
-    nodes.add(
-        SrcNode(
-            name="Resid Start",
-            module_name="blocks.0.hook_resid_pre",
-            layer=next(layers),
-            src_idx=next(idxs),
-            weight="embed.W_E",
+
+    layer = next(layers)
+    if resid_start:
+        nodes.add(
+            SrcNode(
+                name="Resid Start",
+                module_name="blocks.0.hook_resid_pre",
+                layer=layer,
+                src_idx=next(idxs),
+                weight="embed.W_E",
+            )
         )
-    )
+    
 
     for block_idx in range(model.cfg.n_layers):
         layer = next(layers)
-        for head_idx in range(model.cfg.n_heads):
-            nodes.add(
-                SrcNode(
-                    name=f"A{block_idx}.{head_idx}",
-                    module_name=f"blocks.{block_idx}.attn.hook_result",
-                    layer=layer,
-                    src_idx=next(idxs),
-                    head_dim=2,
-                    head_idx=head_idx,
-                    weight=f"blocks.{block_idx}.attn.W_O",
-                    weight_head_dim=0,
+        if layer in ignored_layers: 
+            continue 
+        if attn:
+            for head_idx in range(model.cfg.n_heads):
+                nodes.add(
+                    SrcNode(
+                        name=f"A{block_idx}.{head_idx}",
+                        module_name=f"blocks.{block_idx}.attn.hook_result",
+                        layer=layer,
+                        src_idx=next(idxs),
+                        head_dim=2,
+                        head_idx=head_idx,
+                        weight=f"blocks.{block_idx}.attn.W_O",
+                        weight_head_dim=0,
+                    )
                 )
-            )
-        if not model.cfg.attn_only:
+        if not model.cfg.attn_only and mlp:
             nodes.add(
                 SrcNode(
                     name=f"MLP {block_idx}",
@@ -61,7 +74,12 @@ def factorized_src_nodes(model: tl.HookedTransformer) -> Set[SrcNode]:
 
 
 def factorized_dest_nodes(
-    model: tl.HookedTransformer, separate_qkv: bool
+    model: tl.HookedTransformer, 
+    separate_qkv: bool,
+    ignored_layers: Set[int] = {},
+    resid_end: bool = True,
+    attn: bool = True,
+    mlp: bool = True
 ) -> Set[DestNode]:
     """
     Get the destination part of each edge in the factorized graph, grouped by layer.
@@ -82,33 +100,36 @@ def factorized_dest_nodes(
     nodes = set()
     for block_idx in range(model.cfg.n_layers):
         layer = next(layers)
-        for head_idx in range(model.cfg.n_heads):
-            if separate_qkv:
-                for letter in ["Q", "K", "V"]:
+        if layer in ignored_layers:
+            continue
+        if attn:
+            for head_idx in range(model.cfg.n_heads):
+                if separate_qkv:
+                    for letter in ["Q", "K", "V"]:
+                        nodes.add(
+                            DestNode(
+                                name=f"A{block_idx}.{head_idx}.{letter}",
+                                module_name=f"blocks.{block_idx}.hook_{letter.lower()}_input",
+                                layer=layer,
+                                head_dim=2,
+                                head_idx=head_idx,
+                                weight=f"blocks.{block_idx}.attn.W_{letter}",
+                                weight_head_dim=0,
+                            )
+                        )
+                else:
                     nodes.add(
                         DestNode(
-                            name=f"A{block_idx}.{head_idx}.{letter}",
-                            module_name=f"blocks.{block_idx}.hook_{letter.lower()}_input",
+                            name=f"A{block_idx}.{head_idx}",
+                            module_name=f"blocks.{block_idx}.hook_attn_in",
                             layer=layer,
                             head_dim=2,
                             head_idx=head_idx,
-                            weight=f"blocks.{block_idx}.attn.W_{letter}",
+                            weight=f"blocks.{block_idx}.attn.W_QKV",
                             weight_head_dim=0,
                         )
                     )
-            else:
-                nodes.add(
-                    DestNode(
-                        name=f"A{block_idx}.{head_idx}",
-                        module_name=f"blocks.{block_idx}.hook_attn_in",
-                        layer=layer,
-                        head_dim=2,
-                        head_idx=head_idx,
-                        weight=f"blocks.{block_idx}.attn.W_QKV",
-                        weight_head_dim=0,
-                    )
-                )
-        if not model.cfg.attn_only:
+        if not model.cfg.attn_only and mlp:
             nodes.add(
                 DestNode(
                     name=f"MLP {block_idx}",
@@ -117,14 +138,15 @@ def factorized_dest_nodes(
                     weight=f"blocks.{block_idx}.mlp.W_in",
                 )
             )
-    nodes.add(
-        DestNode(
-            name="Resid End",
-            module_name=f"blocks.{model.cfg.n_layers - 1}.hook_resid_post",
-            layer=next(layers),
-            weight="unembed.W_U",
+    if resid_end:
+        nodes.add(
+            DestNode(
+                name="Resid End",
+                module_name=f"blocks.{model.cfg.n_layers - 1}.hook_resid_post",
+                layer=next(layers),
+                weight="unembed.W_U",
+            )
         )
-    )
     return nodes
 
 
