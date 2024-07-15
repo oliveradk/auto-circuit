@@ -40,6 +40,7 @@ def patchable_model(
     separate_qkv: Optional[bool] = None,
     kv_caches: Tuple[Optional[HookedTransformerKeyValueCache], ...] = (None,),
     device: t.device = t.device("cpu"),
+    **graph_edges_kwargs
 ) -> PatchableModel:
     """
     Wrap a model and inject [`PatchWrapper`][auto_circuit.types.PatchWrapper]s into the
@@ -68,7 +69,7 @@ def patchable_model(
     """
     assert not isinstance(model, PatchableModel), "Model is already patchable"
     nodes, srcs, dests, edge_dict, edges, seq_dim, seq_len = graph_edges(
-        model, factorized, separate_qkv, seq_len
+        model, factorized, separate_qkv, seq_len, **graph_edges_kwargs
     )
     wrappers, src_wrappers, dest_wrappers = make_model_patchable(
         model, factorized, srcs, nodes, device, seq_len, seq_dim
@@ -106,6 +107,13 @@ def graph_edges(
     factorized: bool,
     separate_qkv: Optional[bool] = None,
     seq_len: Optional[int] = None,
+    ignored_layers: Set[int] = set(),
+    resid_src: bool = True, 
+    resid_dest: bool = True,
+    attn_src: bool = True,
+    attn_dest: bool = True,
+    mlp_src: bool = True,
+    mlp_dest: bool = True,
 ) -> Tuple[
     Set[Node],
     Set[SrcNode],
@@ -161,8 +169,8 @@ def graph_edges(
             dests: Set[DestNode] = mm_utils.factorized_dest_nodes(model)
         elif isinstance(model, HookedTransformer):
             assert separate_qkv is not None, "separate_qkv must be specified for LLM"
-            srcs: Set[SrcNode] = tl_utils.factorized_src_nodes(model)
-            dests: Set[DestNode] = tl_utils.factorized_dest_nodes(model, separate_qkv)
+            srcs: Set[SrcNode] = tl_utils.factorized_src_nodes(model, ignored_layers, resid_src, attn_src, mlp_src)
+            dests: Set[DestNode] = tl_utils.factorized_dest_nodes(model, separate_qkv, ignored_layers, resid_dest, attn_dest, mlp_dest)
         elif isinstance(model, AutoencoderTransformer):
             assert separate_qkv is not None, "separate_qkv must be specified for LLM"
             srcs: Set[SrcNode] = sae_utils.factorized_src_nodes(model)
