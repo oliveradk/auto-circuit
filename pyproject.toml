@@ -9,7 +9,7 @@ packages = [{include = "auto_circuit"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 torch = "^2.1.1"
-transformer-lens = "^1.13.0"
+transformer-lens = "*"
 einops = "^0.6.1"
 ordered-set = "^4.1.0"
 plotly = "^5.18.0"
