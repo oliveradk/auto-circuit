@@ -175,7 +175,7 @@ def sae_model(
             hook_module = model.blocks[layer_idx]
             hook_name = "hook_mlp_out"
         if load_pretrained:
-            assert pythia_size is not None
+            #assert pythia_size is not None
             sae = load_autoencoder(hook_point, model, layer_idx, sae_input, pythia_size)
         else:
             assert n_latents is not None
