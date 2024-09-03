@@ -15,6 +15,8 @@ from auto_circuit.utils.graph_utils import (
 )
 from auto_circuit.utils.patchable_model import PatchableModel
 from auto_circuit.utils.tensor_ops import batch_avg_answer_diff, batch_avg_answer_val, batch_avg_answer_max_diff
+from auto_circuit.prune_algos.utils import compute_loss
+
 
 def mask_gradient_prune_scores(
     model: PatchableModel,
@@ -101,30 +103,9 @@ def mask_gradient_prune_scores(
                 for batch in dataloader:
                     patch_src_outs = src_outs[batch.key].clone().detach()
                     with patch_mode(model, patch_src_outs):
-                        logits = model(batch.clean)[out_slice]
-                        if grad_function == "logit":
-                            token_vals = logits
-                        elif grad_function == "prob":
-                            token_vals = t.softmax(logits, dim=-1)
-                        elif grad_function == "logprob":
-                            token_vals = log_softmax(logits, dim=-1)
-                        elif grad_function == "logit_exp":
-                            numerator = t.exp(logits)
-                            denominator = numerator.sum(dim=-1, keepdim=True)
-                            token_vals = numerator / denominator.detach()
-                        else:
-                            raise ValueError(f"Unknown grad_function: {grad_function}")
-
-                        if answer_function == "avg_diff":
-                            loss = -batch_avg_answer_diff(token_vals, batch)
-                        elif answer_function == "max_diff":
-                            loss = -batch_avg_answer_max_diff(token_vals, batch)
-                        elif answer_function == "avg_val":
-                            loss = -batch_avg_answer_val(token_vals, batch)
-                        elif answer_function == "mse":
-                            loss = t.nn.functional.mse_loss(token_vals, batch.answers)
-                        else:
-                            raise ValueError(f"Unknown answer_function: {answer_function}")
+                        loss = compute_loss(
+                            model, batch, grad_function, answer_function, out_slice
+                        )
                         loss.backward()
             # set scores from layer (or all scores if layers is None)
             for dest_wrapper in model.dest_wrappers: 
