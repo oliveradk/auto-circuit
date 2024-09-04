@@ -1,4 +1,5 @@
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
+from collections import defaultdict
 
 import torch as t
 
@@ -22,7 +23,6 @@ def act_patch_prune_scores(
     ablation_type: AblationType = AblationType.RESAMPLE,
     clean_corrupt: Optional[Literal["clean", "corrupt"]] = "corrupt",
 ) -> PruneScores:
-    out_slice = model.out_slice
     src_outs: Dict[BatchKey, t.Tensor] = batch_src_ablations(
         model,
         dataloader,
@@ -33,9 +33,9 @@ def act_patch_prune_scores(
     # compute loss on full model 
     with t.no_grad():
         for batch in tqdm(dataloader, desc="Full model"):
-            loss = compute_loss(model, batch, grad_function, answer_function, out_slice)
-            for edge in model.edges:
-                prune_scores[edge.dest.module_name][edge.patch_idx] += loss.sum().item()
+            loss = compute_loss(model, batch, grad_function, answer_function)
+            for mod_name in prune_scores.keys():
+                prune_scores[mod_name] += loss.sum().item()
     # compute loss on model with each edge ablated
     for edge in tqdm(model.edges, desc="Edge ablation"):
         edge: Edge
@@ -43,6 +43,6 @@ def act_patch_prune_scores(
         for batch in dataloader:
             patch_src_outs = src_outs[batch.key].clone().detach()
             with patch_mode(model, patch_src_outs, edges=[edge]):
-                loss = compute_loss(model, batch, grad_function, answer_function, out_slice)
+                loss = compute_loss(model, batch, grad_function, answer_function)
             prune_scores[edge.dest.module_name][edge.patch_idx] -= loss.sum().item()
     return prune_scores

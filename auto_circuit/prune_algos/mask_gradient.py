@@ -67,7 +67,6 @@ def mask_gradient_prune_scores(
     """
     assert (mask_val is not None) ^ (integrated_grad_samples is not None)  # ^ means XOR
     assert (layers is None) or (integrated_grad_samples is not None)
-    out_slice = model.out_slice
     device = next(model.parameters()).device
 
     src_outs: Dict[BatchKey, t.Tensor] = batch_src_ablations(
@@ -104,7 +103,7 @@ def mask_gradient_prune_scores(
                     patch_src_outs = src_outs[batch.key].clone().detach()
                     with patch_mode(model, patch_src_outs):
                         loss = compute_loss(
-                            model, batch, grad_function, answer_function, out_slice
+                            model, batch, grad_function, answer_function
                         )
                         loss.backward()
             # set scores from layer (or all scores if layers is None)

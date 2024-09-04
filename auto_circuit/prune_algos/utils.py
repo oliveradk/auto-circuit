@@ -13,11 +13,10 @@ def compute_loss(
     batch: PromptPairBatch,
     grad_function: Literal["logit", "prob", "logprob", "logit_exp"],
     answer_function: Literal["avg_diff", "max_diff", "avg_val", "mse"],
-    out_slice: slice,
     logits: Optional[t.Tensor] = None,
 ) -> t.Tensor:
     if logits is None:
-        logits = model(batch.clean)[out_slice]
+        logits = model(batch.clean)[model.out_slice]
     if grad_function == "logit":
         token_vals = logits
     elif grad_function == "prob":
