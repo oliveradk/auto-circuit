@@ -289,8 +289,8 @@ IOI_TOKEN_CIRCUIT_TASK: Task = Task(
     name="Indirect Object Identification",
     _model_def="gpt2-small",
     _dataset_name="ioi/ioi_vanilla_template_prompts",
-    batch_size=(300, 100),
-    batch_count=(1, 1),
+    batch_size=64,
+    batch_count=4,
     _true_edge_func=ioi_head_based_official_edges,
     token_circuit=True,
 )
@@ -300,7 +300,7 @@ IOI_COMPONENT_CIRCUIT_TASK: Task = Task(
     _model_def="gpt2-small",
     _dataset_name="ioi/ioi_prompts",
     batch_size=64,
-    batch_count=2,
+    batch_count=4,
     _true_edge_func=ioi_true_edges,
     token_circuit=False,
 )
@@ -342,7 +342,7 @@ GREATERTHAN_COMPONENT_CIRCUIT_TASK: Task = Task(
     _model_def="gpt2-small",
     _dataset_name="greaterthan_gpt2-small_prompts",
     batch_size=64,
-    batch_count=2,
+    batch_count=4,
     _true_edge_func=greaterthan_true_edges,
     token_circuit=False,
 )
