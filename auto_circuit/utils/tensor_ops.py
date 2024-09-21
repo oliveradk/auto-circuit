@@ -146,6 +146,47 @@ def batch_answer_max_diffs(vals: t.Tensor, batch: PromptPairBatch) -> t.Tensor:
         return t.stack(ans_max) - t.stack(wrong_max)
 
 
+def batch_kl_divs(input_logprobs: t.Tensor, target_logprobs: t.Tensor) -> t.Tensor:
+    """
+    Compute the KL divergences between two sets of log probabilities. 
+    Assumes the last dimension of `input_logprobs` and `target_logprobs` is the log
+    probability of each class. 
+
+    Args:
+        input_logprobs: The input log probabilities.
+        target_logprobs: The target log probabilities.
+
+    Returns:
+        The KL divergence between the input and target log probabilities.
+    """
+    assert input_logprobs.shape == target_logprobs.shape
+    kl_div_sum = t.nn.functional.kl_div(
+        input_logprobs,
+        target_logprobs,
+        reduction="none",
+        log_target=True,
+    )
+    # Sum over the last dimension (logprobs)
+    return kl_div_sum.sum(dim=-1)
+
+def batch_js_divs(input_logprobs: t.Tensor, target_logprobs: t.Tensor) -> t.Tensor:
+    """
+    Compute the Jenson-Shannon divergences between two sets of log probabilities. 
+    Assumes the last dimension of `input_logprobs` and `target_logprobs` is the log
+    probability of each class. 
+
+    Args:
+        input_logprobs: The input log probabilities.
+        target_logprobs: The target log probabilities.
+
+    Returns:
+        The JS divergence between the input and target log probabilities.
+    """
+    kl_target_input = batch_kl_divs(target_logprobs, input_logprobs)
+    kl_input_target = batch_kl_divs(input_logprobs, target_logprobs)
+    return 0.5 * (kl_target_input + kl_input_target)
+
+
 
 def batch_avg_answer_diff(vals: t.Tensor, batch: PromptPairBatch) -> t.Tensor:
     """
@@ -260,14 +301,28 @@ def multibatch_kl_div(input_logprobs: t.Tensor, target_logprobs: t.Tensor) -> t.
         The average KL divergence between the input and target log probabilities.
     """
     assert input_logprobs.shape == target_logprobs.shape
-    kl_div_sum = t.nn.functional.kl_div(
-        input_logprobs,
-        target_logprobs,
-        reduction="sum",
-        log_target=True,
-    )
-    n_batch = math.prod(input_logprobs.shape[:-1])
-    return kl_div_sum / n_batch
+    kl_divs = batch_kl_divs(input_logprobs, target_logprobs)
+    # Return average KL divergence
+    return kl_divs.mean()
+
+
+def multibatch_js_div(input_logprobs: t.Tensor, target_logprobs: t.Tensor) -> t.Tensor:
+    """
+    Compute the average Jenson-Shannon divergence between two sets of log probabilities.
+    Assumes the last dimension of `input_logprobs` and `target_logprobs` is the log
+    probability of each class. The other dimensions are batch dimensions.
+
+    Args:
+        input_logprobs: The input log probabilities.
+        target_logprobs: The target log probabilities.
+
+    Returns:
+        The average JS divergence between the input and target log probabilities.
+    """
+    assert input_logprobs.shape == target_logprobs.shape
+    js_divs = batch_js_divs(input_logprobs, target_logprobs)
+    # Return average JS divergence
+    return js_divs.mean()
 
 
 def flat_prune_scores(prune_scores: PruneScores, per_inst: bool=False) -> t.Tensor:

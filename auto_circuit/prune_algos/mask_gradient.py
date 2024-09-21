@@ -3,7 +3,7 @@ from typing import Dict, Literal, Optional, Set, Union
 import torch as t
 from torch.nn.functional import log_softmax
 
-from auto_circuit.data import PromptDataLoader
+from auto_circuit.data import PromptDataLoader, PromptPairBatch
 from auto_circuit.types import AblationType, BatchKey, Edge, PruneScores
 from auto_circuit.utils.ablation_activations import batch_src_ablations
 from auto_circuit.utils.custom_tqdm import tqdm
@@ -23,7 +23,7 @@ def mask_gradient_prune_scores(
     dataloader: PromptDataLoader,
     official_edges: Optional[Set[Edge]],
     grad_function: Literal["logit", "prob", "logprob", "logit_exp"],
-    answer_function: Literal["avg_diff", "max_diff", "avg_val", "mse"],
+    answer_function: Literal["avg_diff", "max_diff", "avg_val", "mse", "kl_div", "js_div"],
     mask_val: Optional[float] = None,
     integrated_grad_samples: Optional[int] = None,
     ablation_type: AblationType = AblationType.RESAMPLE,
@@ -67,6 +67,7 @@ def mask_gradient_prune_scores(
     """
     assert (mask_val is not None) ^ (integrated_grad_samples is not None)  # ^ means XOR
     assert (layers is None) or (integrated_grad_samples is not None)
+    assert (answer_function not in ["kl_div", "js_div"]) or (grad_function == "logprob")
     device = next(model.parameters()).device
 
     src_outs: Dict[BatchKey, t.Tensor] = batch_src_ablations(
@@ -75,6 +76,13 @@ def mask_gradient_prune_scores(
         ablation_type=ablation_type,
         clean_corrupt=clean_corrupt,
     )
+    clean_outs: Optional[Dict[BatchKey, t.Tensor]] = None
+    if integrated_grad_samples is not None and answer_function in ["kl_div", "js_div"]:
+        clean_outs = {
+            batch.key: model(batch.clean)[model.out_slice] # TODO: move to cpu? 
+            for batch in dataloader
+        }
+
     prune_scores = model.new_prune_scores()
     with train_mask_mode(model):
         layers_iter = layers if isinstance(layers, list) else range((layers or 0)+1)
@@ -103,7 +111,8 @@ def mask_gradient_prune_scores(
                     patch_src_outs = src_outs[batch.key].clone().detach()
                     with patch_mode(model, patch_src_outs):
                         loss = compute_loss(
-                            model, batch, grad_function, answer_function
+                            model, batch, grad_function, answer_function, 
+                            clean_out=clean_outs[batch.key] if clean_outs else None
                         )
                         loss.backward()
             # set scores from layer (or all scores if layers is None)
